@@ -64,7 +64,6 @@ import android.widget.ProgressBar;
 import android.widget.RelativeLayout;
 import android.widget.TextView;
 import android.print.PrintManager;
-import android.print.PrintJob;
 import android.print.PrintDocumentAdapter;
 import android.print.PrintAttributes;
 
@@ -1021,14 +1020,19 @@ public class InAppBrowser extends CordovaPlugin {
                     @JavascriptInterface
                     public void print(String jobName) {
                         inAppWebView.post(() -> {
+                            String finalJobName = jobName;
+                            if (finalJobName == null || finalJobName.trim().isEmpty()) {
+                                finalJobName = "Web View Document";
+                            }
+
                             // Get a PrintManager instance
                             PrintManager printManager = (PrintManager) cordova.getActivity()
                                     .getSystemService(Context.PRINT_SERVICE);
 
-                            PrintDocumentAdapter printAdapter = inAppWebView.createPrintDocumentAdapter(jobName);
+                            PrintDocumentAdapter printAdapter = inAppWebView.createPrintDocumentAdapter(finalJobName);
 
                             // Create a print job with name and adapter instance
-                            printManager.print(jobName, printAdapter,
+                            printManager.print(finalJobName, printAdapter,
                                     new PrintAttributes.Builder().build());
                         });
                     }
