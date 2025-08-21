@@ -1003,7 +1003,7 @@ public class InAppBrowser extends CordovaPlugin {
                     }
                 );
 
-                // Add print/postMessage interfaces
+                // Add print/close/postMessage interfaces
                 class JsObject {
                     @JavascriptInterface
                     public void postMessage(String data) {
@@ -1035,6 +1035,11 @@ public class InAppBrowser extends CordovaPlugin {
                             printManager.print(finalJobName, printAdapter,
                                     new PrintAttributes.Builder().build());
                         });
+                    }
+
+                    @JavascriptInterface
+                    public void close() {
+                        closeDialog();
                     }
                 }
 
@@ -1427,6 +1432,9 @@ public class InAppBrowser extends CordovaPlugin {
 
             // override window.print
             injectDeferredObject("window.print=()=>{cordova_iab.print(window.document.title);}", null);
+
+            // override window.close
+            injectDeferredObject("window.close=()=>{cordova_iab.close();}", null);
 
             // CB-10395 InAppBrowser's WebView not storing cookies reliable to local device storage
             CookieManager.getInstance().flush();
