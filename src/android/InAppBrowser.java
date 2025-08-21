@@ -937,6 +937,7 @@ public class InAppBrowser extends CordovaPlugin {
                 // Progress of loading a page
                 ProgressBar progressBarLoadingPage = new ProgressBar(webView.getContext(), null, android.R.attr.progressBarStyleHorizontal);
                 progressBarLoadingPage.setLayoutParams((new LinearLayout.LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT)));
+                progressBarLoadingPage.setMinHeight(0);
 
                 // WebView
                 inAppWebView = new WebView(cordova.getActivity());
