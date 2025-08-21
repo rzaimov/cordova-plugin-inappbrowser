@@ -801,8 +801,9 @@ BOOL isExiting = FALSE;
       self.toolbar.translucent = NO;
     }
     
-    CGFloat labelInset = 5.0;
-    float locationBarY = toolbarIsAtBottom ? self.view.bounds.size.height - FOOTER_HEIGHT : self.view.bounds.size.height - LOCATIONBAR_HEIGHT;
+    CGFloat statusBarHeight = [self getStatusBarOffset];
+    CGFloat labelInset = 0.0;
+    float locationBarY = toolbarIsAtBottom ? self.view.bounds.size.height - FOOTER_HEIGHT : statusBarHeight + TOOLBAR_HEIGHT;
     
     self.addressLabel = [[UILabel alloc] initWithFrame:CGRectMake(labelInset, locationBarY, self.view.bounds.size.width - labelInset, LOCATIONBAR_HEIGHT)];
     self.addressLabel.adjustsFontSizeToFitWidth = NO;
@@ -812,7 +813,7 @@ BOOL isExiting = FALSE;
     if (_browserOptions.locationcolor != nil) { // Set background color if user sets it in options
         self.addressLabel.backgroundColor = [self colorFromHexString:_browserOptions.locationcolor];
     } else {
-        self.addressLabel.backgroundColor = [UIColor clearColor];
+        self.addressLabel.backgroundColor = [UIColor lightGrayColor];
     }
     self.addressLabel.baselineAdjustment = UIBaselineAdjustmentAlignCenters;
     self.addressLabel.clearsContextBeforeDrawing = YES;
@@ -841,7 +842,7 @@ BOOL isExiting = FALSE;
     }
     self.addressLabel.userInteractionEnabled = NO;
     
-    NSString* frontArrowString = NSLocalizedString(@"►", nil); // create arrow from Unicode char
+    NSString* frontArrowString = NSLocalizedString(@"▶", nil); // create arrow from Unicode char
     self.forwardButton = [[UIBarButtonItem alloc] initWithTitle:frontArrowString style:UIBarButtonItemStylePlain target:self action:@selector(goForward:)];
     self.forwardButton.enabled = YES;
     self.forwardButton.imageInsets = UIEdgeInsetsZero;
@@ -849,7 +850,7 @@ BOOL isExiting = FALSE;
       self.forwardButton.tintColor = [self colorFromHexString:_browserOptions.navigationbuttoncolor];
     }
 
-    NSString* backArrowString = NSLocalizedString(@"◄", nil); // create arrow from Unicode char
+    NSString* backArrowString = NSLocalizedString(@"◀", nil); // create arrow from Unicode char
     self.backButton = [[UIBarButtonItem alloc] initWithTitle:backArrowString style:UIBarButtonItemStylePlain target:self action:@selector(goBack:)];
     self.backButton.enabled = YES;
     self.backButton.imageInsets = UIEdgeInsetsZero;
@@ -1113,6 +1114,10 @@ BOOL isExiting = FALSE;
         // if we have to display the toolbar on top of the web view, we need to account for its height
         viewBounds.origin.y += TOOLBAR_HEIGHT;
         self.toolbar.frame = CGRectMake(self.toolbar.frame.origin.x, statusBarHeight, self.toolbar.frame.size.width, self.toolbar.frame.size.height);
+        if ((_browserOptions.location)) {
+            viewBounds.origin.y += LOCATIONBAR_HEIGHT;
+            self.addressLabel.frame = CGRectMake(self.addressLabel.frame.origin.x, statusBarHeight + TOOLBAR_HEIGHT, self.addressLabel.frame.size.width, self.addressLabel.frame.size.height);
+        }
     }
     
     self.webView.frame = viewBounds;
