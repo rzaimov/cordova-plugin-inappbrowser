@@ -612,6 +612,7 @@ static CDVWKInAppBrowser* instance = nil;
     }
     
     [self.inAppBrowserViewController.configuration.userContentController removeScriptMessageHandlerForName:IAB_BRIDGE_NAME];
+    [self.inAppBrowserViewController.configuration.userContentController removeAllUserScripts];
     self.inAppBrowserViewController.configuration = nil;
     
     [self.inAppBrowserViewController.webView stopLoading];
@@ -686,6 +687,13 @@ BOOL isExiting = FALSE;
     configuration.processPool = [[CDVWKProcessPoolFactory sharedFactory] sharedProcessPool];
 #endif
     [configuration.userContentController addScriptMessageHandler:self name:IAB_BRIDGE_NAME];
+    
+    // Override window.print() and window.close()
+    NSString *printScript = [NSString stringWithFormat:@"window.print = function() { window.webkit.messageHandlers.%@.postMessage('print'); };", IAB_BRIDGE_NAME];
+    NSString *closeScript = [NSString stringWithFormat:@"window.close = function() { window.webkit.messageHandlers.%@.postMessage('close'); };", IAB_BRIDGE_NAME];
+    NSString *scriptSource = [NSString stringWithFormat:@"%@%@", printScript, closeScript];
+    WKUserScript *userScript = [[WKUserScript alloc] initWithSource:scriptSource injectionTime:WKUserScriptInjectionTimeAtDocumentEnd forMainFrameOnly:YES];
+    [configuration.userContentController addUserScript:userScript];
     
     //WKWebView options
     configuration.allowsInlineMediaPlayback = _browserOptions.allowinlinemediaplayback;
@@ -1195,6 +1203,19 @@ BOOL isExiting = FALSE;
     if (![message.name isEqualToString:IAB_BRIDGE_NAME]) {
         return;
     }
+    
+    if ([message.body isEqualToString:@"close"]) {
+        NSLog(@"Received close request from web view.");
+        [self close];
+        return;
+    }
+    
+    if ([message.body isEqualToString:@"print"]) {
+        NSLog(@"Received print request from web view.");
+        [self printWebViewContent];
+        return;
+    }
+    
     //NSLog(@"Received script message %@", message.body);
     [self.navigationDelegate userContentController:userContentController didReceiveScriptMessage:message];
 }
@@ -1235,6 +1256,32 @@ BOOL isExiting = FALSE;
 
 - (void)presentationControllerWillDismiss:(UIPresentationController *)presentationController {
     isExiting = TRUE;
+}
+
+#pragma mark - Printing Method
+
+- (void)printWebViewContent {
+    UIPrintInteractionController *printController = [UIPrintInteractionController sharedPrintController];
+    
+    UIPrintInfo *printInfo = [UIPrintInfo printInfo];
+    
+    if (self.webView.title && self.webView.title.length > 0) {
+        printInfo.jobName = self.webView.title;
+    } else {
+        printInfo.jobName = @"Web View Document";
+    }
+    
+    printInfo.outputType = UIPrintInfoOutputGeneral;
+    
+    printController.printInfo = printInfo;
+    printController.printFormatter = [self.webView viewPrintFormatter];
+    
+    // Present the print dialog
+    [printController presentAnimated:YES completionHandler:^(UIPrintInteractionController * _Nonnull printInteractionController, BOOL completed, NSError * _Nullable error) {
+        if (!completed && error) {
+            NSLog(@"Printing failed: %@", error.localizedDescription);
+        }
+    }];
 }
 
 @end //CDVWKInAppBrowserViewController
