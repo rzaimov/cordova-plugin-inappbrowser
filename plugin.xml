@@ -19,6 +19,7 @@
 -->
 
 <plugin xmlns="http://apache.org/cordova/ns/plugins/1.0"
+        xmlns:android="http://schemas.android.com/apk/res/android"
            id="cordova-plugin-inappbrowser"
       version="6.0.1-dev">
 
@@ -46,9 +47,23 @@
             </feature>
         </config-file>
 
+        <config-file target="AndroidManifest.xml" parent="queries">
+            <intent>
+                <action android:name="org.chromium.intent.action.PAY"/>
+            </intent>
+            <intent>
+                <action android:name="org.chromium.intent.action.IS_READY_TO_PAY"/>
+            </intent>
+            <intent>
+                <action android:name="org.chromium.intent.action.UPDATE_PAYMENT_DETAILS"/>
+            </intent>
+        </config-file>
+
         <source-file src="src/android/InAppBrowser.java" target-dir="src/org/apache/cordova/inappbrowser" />
         <source-file src="src/android/InAppBrowserDialog.java" target-dir="src/org/apache/cordova/inappbrowser" />
         <source-file src="src/android/InAppChromeClient.java" target-dir="src/org/apache/cordova/inappbrowser" />
+
+        <framework src="androidx.webkit:webkit:1.14.0" />
 
         <!-- drawable src/android/resources -->
         <resource-file src="src/android/res/drawable-hdpi/ic_action_next_item.png" target="res/drawable-hdpi/ic_action_next_item.png" />

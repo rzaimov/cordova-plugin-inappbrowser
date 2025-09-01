@@ -67,6 +67,9 @@ import android.print.PrintManager;
 import android.print.PrintDocumentAdapter;
 import android.print.PrintAttributes;
 
+import androidx.webkit.WebSettingsCompat;
+import androidx.webkit.WebViewFeature;
+
 import org.apache.cordova.CallbackContext;
 import org.apache.cordova.Config;
 import org.apache.cordova.CordovaArgs;
@@ -796,7 +799,7 @@ public class InAppBrowser extends CordovaPlugin {
                 return _close;
             }
 
-            @SuppressLint("NewApi")
+            @SuppressLint({"NewApi", "WrongConstant"})
             public void run() {
 
                 // CB-6702 InAppBrowser hangs when opening more than one instance
@@ -980,6 +983,10 @@ public class InAppBrowser extends CordovaPlugin {
                 settings.setBuiltInZoomControls(enableZoom);
                 settings.setDisplayZoomControls(showZoomControls);
                 settings.setPluginState(android.webkit.WebSettings.PluginState.ON);
+
+                if (WebViewFeature.isFeatureSupported(WebViewFeature.PAYMENT_REQUEST)) {
+                    WebSettingsCompat.setPaymentRequestEnabled(settings, true);
+                }
                 
                 // download event
                 
