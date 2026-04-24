@@ -788,21 +788,32 @@ BOOL isExiting = NO;
     
     // Background view for address label
     self.addressBackgroundView = [UIView new];
-    self.addressBackgroundView.backgroundColor = [UIColor colorWithWhite:1.0 alpha:0.6];
-    self.addressBackgroundView.layer.cornerRadius = 15.0;
-    // We add our own constraints, they should not be determined from the frame.
+    self.addressBackgroundView.backgroundColor = [UIColor clearColor];
     self.addressBackgroundView.translatesAutoresizingMaskIntoConstraints = NO;
     [self.view addSubview:self.addressBackgroundView];
     
+    // Create the ScrollView to act as the "scrolling container"
+    UIScrollView *addressScrollView = [UIScrollView new];
+    addressScrollView.translatesAutoresizingMaskIntoConstraints = NO;
+    addressScrollView.showsHorizontalScrollIndicator = NO;
+    addressScrollView.bounces = YES;
+    [self.addressBackgroundView addSubview:addressScrollView];
+    
     self.addressLabel = [UILabel new];
     self.addressLabel.text = NSLocalizedString(@"Loading...", nil);
-    self.addressLabel.textColor = UIColor.blackColor;
+    
+    if (_browserOptions.locationtextcolor != nil) {
+        self.addressLabel.textColor = [self colorFromHexString:_browserOptions.locationtextcolor];
+    } else {
+        self.addressLabel.textColor = UIColor.blackColor;
+    }
+    
     self.addressLabel.textAlignment = NSTextAlignmentLeft;
-    // Truncate at tail of line: "abcd..."
-    self.addressLabel.lineBreakMode = NSLineBreakByTruncatingTail;
+    // Clipping ensures the text just "ends" where the scroll view starts.
+    self.addressLabel.lineBreakMode = NSLineBreakByClipping;
     // We add our own constraints, they should not be determined from the frame.
     self.addressLabel.translatesAutoresizingMaskIntoConstraints = NO;
-    [self.addressBackgroundView addSubview:self.addressLabel];
+    [addressScrollView addSubview:self.addressLabel];
     
     self.spinner = [[UIActivityIndicatorView alloc] initWithFrame:CGRectZero];
     self.spinner.clearsContextBeforeDrawing = NO;
@@ -821,10 +832,15 @@ BOOL isExiting = NO;
     self.closeButton = [[UIBarButtonItem alloc] initWithBarButtonSystemItem:UIBarButtonSystemItemDone target:self action:@selector(close)];
     self.closeButton.enabled = YES;
 
-    UIBarButtonItem *flexibleSpaceButton = [[UIBarButtonItem alloc] initWithBarButtonSystemItem:UIBarButtonSystemItemFlexibleSpace target:nil action:nil];
+    UIBarButtonItem *addressBarButton;
+    if (_browserOptions.location) {
+        addressBarButton = [[UIBarButtonItem alloc] initWithCustomView:self.addressBackgroundView];
+    } else {
+        addressBarButton = [[UIBarButtonItem alloc] initWithBarButtonSystemItem:UIBarButtonSystemItemFlexibleSpace target:nil action:nil];
+    }
 
     UIBarButtonItem *fixedSpaceButton = [[UIBarButtonItem alloc] initWithBarButtonSystemItem:UIBarButtonSystemItemFixedSpace target:nil action:nil];
-    fixedSpaceButton.width = 20;
+    fixedSpaceButton.width = 0;
 
     NSString *frontArrowString = NSLocalizedString(@"▶", nil); // Create arrow from Unicode char
     self.forwardButton = [[UIBarButtonItem alloc] initWithTitle:frontArrowString style:UIBarButtonItemStylePlain target:self action:@selector(goForward:)];
@@ -844,7 +860,7 @@ BOOL isExiting = NO;
 
     // Add toolbar items
     // Define the close button and flexible space button, they are swapped when lefttoright is set
-    NSArray *closeItems = _browserOptions.lefttoright ? @[flexibleSpaceButton, self.closeButton] : @[self.closeButton, flexibleSpaceButton];
+    NSArray *closeItems = _browserOptions.lefttoright ? @[addressBarButton, self.closeButton] : @[self.closeButton, addressBarButton];
     // Navigation items are optional
     NSArray *navigationItems = @[self.backButton, fixedSpaceButton, self.forwardButton];
 
@@ -910,22 +926,6 @@ BOOL isExiting = NO;
         [self.toolbar.trailingAnchor constraintEqualToAnchor:self.toolbarBackground.layoutMarginsGuide.trailingAnchor]
     ]];
 
-    // Address background horizontal constraints with margin
-    [NSLayoutConstraint activateConstraints:@[
-        // Left to safe area for proper layout on landscape
-        [self.addressBackgroundView.leadingAnchor constraintEqualToAnchor:self.view.layoutMarginsGuide.leadingAnchor],
-        // Right to safe area for proper layout on landscape
-        [self.addressBackgroundView.trailingAnchor constraintEqualToAnchor:self.view.layoutMarginsGuide.trailingAnchor]
-    ]];
-
-    // Constrain Address label inside Address background view with padding
-    [NSLayoutConstraint activateConstraints:@[
-        [self.addressLabel.topAnchor constraintEqualToAnchor:self.addressBackgroundView.layoutMarginsGuide.topAnchor],
-        [self.addressLabel.bottomAnchor constraintEqualToAnchor:self.addressBackgroundView.layoutMarginsGuide.bottomAnchor],
-        [self.addressLabel.leadingAnchor constraintEqualToAnchor:self.addressBackgroundView.layoutMarginsGuide.leadingAnchor],
-        [self.addressLabel.trailingAnchor constraintEqualToAnchor:self.addressBackgroundView.layoutMarginsGuide.trailingAnchor]
-    ]];
-
     // Center spinner in WebView
     [self.spinner.centerXAnchor constraintEqualToAnchor:self.webView.centerXAnchor].active = YES;
     [self.spinner.centerYAnchor constraintEqualToAnchor:self.webView.centerYAnchor].active = YES;
@@ -934,16 +934,16 @@ BOOL isExiting = NO;
     // The Address label and Toolbar are optional
     // Constraints for different cases set by options when Toolbar and/or Address label is visible or not
     //
-    // Case 1: Toolbar and Address label not visible
-    if (!toolbarVisible && !addressLabelVisible) {
-        // Webview top to top edge
-        [self.webView.topAnchor constraintEqualToAnchor:self.view.topAnchor].active = YES;
+    // Case 1: Toolbar not visible
+    if (!toolbarVisible) {
+        // Webview top to safe area top
+        [self.webView.topAnchor constraintEqualToAnchor:self.view.safeAreaLayoutGuide.topAnchor].active = YES;
         // WebView bottom to bottom edge
         [self.webView.bottomAnchor constraintEqualToAnchor:self.view.bottomAnchor].active = YES;
     }
     
-    // Case 2: Toolbar visible, Address label not visible
-    if (toolbarVisible && !addressLabelVisible) {
+    // Case 2: Toolbar visible visible (default)
+    if (toolbarVisible) {
         // Toolbar is at top
         if (toolbarIsAtTop) {
             [NSLayoutConstraint activateConstraints:@[
@@ -957,57 +957,44 @@ BOOL isExiting = NO;
             // Toolbar is at bottom (default)
         } else {
             [NSLayoutConstraint activateConstraints:@[
-                // WebView top to top edge
-                [self.webView.topAnchor constraintEqualToAnchor:self.view.topAnchor],
+                // WebView top to safe area top
+                [self.webView.topAnchor constraintEqualToAnchor:self.view.safeAreaLayoutGuide.topAnchor],
                 // WebView bottom to Toolbar background top
                 [self.webView.bottomAnchor constraintEqualToAnchor:self.toolbarBackground.topAnchor],
                 // Toolbar background bottom to bottom edge
                 [self.toolbarBackground.bottomAnchor constraintEqualToAnchor:self.view.bottomAnchor],
             ]];
         }
-    }
 
-    // Case 3: Toolbar not visible, Address label visible
-    if (!toolbarVisible && addressLabelVisible) {
-        [NSLayoutConstraint activateConstraints:@[
-            // Webview top to top edge
-            [self.webView.topAnchor constraintEqualToAnchor:self.view.topAnchor],
-            // Address background top to web view bottom with spacing
-            [self.addressBackgroundView.topAnchor constraintEqualToSystemSpacingBelowAnchor:self.webView.bottomAnchor
-                                                                                 multiplier:1.0],
-            // Address background bottom to safe area bottom
-            [self.addressBackgroundView.bottomAnchor constraintEqualToAnchor:self.view.safeAreaLayoutGuide.bottomAnchor]
-        ]];
-    }
-
-    // Case 4: Toolbar visible and Address label visible (default)
-    if (toolbarVisible && addressLabelVisible) {
-        // Toolbar is at top
-        if (toolbarIsAtTop) {
+        // Address label visible (default)
+        if (addressLabelVisible) {
+            // Address background horizontal width constraints
+            CGFloat maxDimension = MAX(UIScreen.mainScreen.bounds.size.width, UIScreen.mainScreen.bounds.size.height);
+    
+            // This ensures it always wants to be as wide as the screen itself
+            NSLayoutConstraint *width = [self.addressBackgroundView.widthAnchor constraintEqualToConstant:maxDimension];
+            width.priority = UILayoutPriorityDefaultHigh;
+            width.active = YES;
+    
+            // Set a minimum width so it doesn't disappear
+            [self.addressBackgroundView.widthAnchor constraintGreaterThanOrEqualToConstant:120].active = YES;
+            
             [NSLayoutConstraint activateConstraints:@[
-                // Toolbar background top to top edge
-                [self.toolbarBackground.topAnchor constraintEqualToAnchor:self.view.topAnchor],
-                // Webview top to Toolbar background bottom
-                [self.webView.topAnchor constraintEqualToAnchor:self.toolbarBackground.bottomAnchor],
-                // Address background top to web view bottom with spacing
-                [self.addressBackgroundView.topAnchor constraintEqualToSystemSpacingBelowAnchor:self.webView.bottomAnchor
-                                                                                     multiplier:1.0],
-                // Address background bottom to safe area bottom
-                [self.addressBackgroundView.bottomAnchor constraintEqualToAnchor:self.view.safeAreaLayoutGuide.bottomAnchor]
-            ]];
-
-            // Toolbar is at bottom (default)
-        } else {
-            [NSLayoutConstraint activateConstraints:@[
-                // WebView top to top edge
-                [self.webView.topAnchor constraintEqualToAnchor:self.view.topAnchor],
-                // Address background top to web view bottom with spacing
-                [self.addressBackgroundView.topAnchor constraintEqualToSystemSpacingBelowAnchor:self.webView.bottomAnchor
-                                                                                     multiplier:1.0],
-                // Toolbar background top to address background bottom with spacing
-                [self.toolbarBackground.topAnchor constraintEqualToSystemSpacingBelowAnchor:self.addressBackgroundView.bottomAnchor multiplier:1.0],
-                // Toolbar background bottom to bottom edge
-                [self.toolbarBackground.bottomAnchor constraintEqualToAnchor:self.view.bottomAnchor],
+                // Constrain ScrollView inside Address background view with padding
+                [addressScrollView.leadingAnchor constraintEqualToAnchor:self.addressBackgroundView.layoutMarginsGuide.leadingAnchor],
+                [addressScrollView.trailingAnchor constraintEqualToAnchor:self.addressBackgroundView.layoutMarginsGuide.trailingAnchor],
+                [addressScrollView.topAnchor constraintEqualToAnchor:self.addressBackgroundView.topAnchor],
+                [addressScrollView.bottomAnchor constraintEqualToAnchor:self.addressBackgroundView.bottomAnchor],
+            
+                // Pin Label to ScrollView's CONTENT layout guide
+                // This is what makes it scrollable: the label defines the content size.
+                [self.addressLabel.leadingAnchor constraintEqualToAnchor:addressScrollView.contentLayoutGuide.leadingAnchor],
+                [self.addressLabel.trailingAnchor constraintEqualToAnchor:addressScrollView.contentLayoutGuide.trailingAnchor],
+                [self.addressLabel.topAnchor constraintEqualToAnchor:addressScrollView.contentLayoutGuide.topAnchor],
+                [self.addressLabel.bottomAnchor constraintEqualToAnchor:addressScrollView.contentLayoutGuide.bottomAnchor],
+                
+                // Make sure the label is at least the height of the background view
+                [self.addressLabel.heightAnchor constraintEqualToAnchor:addressScrollView.frameLayoutGuide.heightAnchor]
             ]];
         }
     }
