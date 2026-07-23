@@ -35,6 +35,7 @@ import android.net.http.SslError;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
+import android.os.Message;
 import android.text.InputType;
 import android.util.TypedValue;
 import android.view.Gravity;
@@ -174,7 +175,6 @@ public class InAppBrowser extends CordovaPlugin {
      */
     public boolean execute(String action, CordovaArgs args, final CallbackContext callbackContext) throws JSONException {
         if (action.equals("open")) {
-            this.callbackContext = callbackContext;
             final String url = args.getString(0);
             String t = args.optString(1);
             if (t == null || t.equals("") || t.equals(NULL)) {
@@ -247,6 +247,7 @@ public class InAppBrowser extends CordovaPlugin {
                         // load in InAppBrowser
                         else {
                             LOG.d(LOG_TAG, "loading in InAppBrowser");
+                            InAppBrowser.this.callbackContext = callbackContext;
                             result = showWebPage(url, features);
                         }
                     }
@@ -258,6 +259,7 @@ public class InAppBrowser extends CordovaPlugin {
                     // BLANK - or anything else
                     else {
                         LOG.d(LOG_TAG, "in blank");
+                        InAppBrowser.this.callbackContext = callbackContext;
                         result = showWebPage(url, features);
                     }
 
@@ -662,11 +664,11 @@ public class InAppBrowser extends CordovaPlugin {
             }
             String zoom = features.get(ZOOM);
             if (zoom != null) {
-                enableZoom = zoom.equals("yes") ? true : false;
+                enableZoom = zoom.equals("yes");
             }
             String zoomcontrols = features.get(ZOOMCONTROLS);
             if (zoomcontrols != null) {
-                showZoomControls = zoomcontrols.equals("yes") ? true : false;
+                showZoomControls = zoomcontrols.equals("yes");
             }
             String hidden = features.get(HIDDEN);
             if (hidden != null) {
@@ -755,6 +757,36 @@ public class InAppBrowser extends CordovaPlugin {
                 );
 
                 return value;
+            }
+
+            /**
+             * Clears cookies according to the active options and invokes completion when finished.
+             *
+             * Cookie clearing APIs are asynchronous (API 22+), so loadUrl must run in the callback
+             * to avoid a race where navigation starts before cookie deletion is complete.
+             */
+            private void clearCookies(final Runnable completion) {
+                final CookieManager cookieManager = CookieManager.getInstance();
+
+                if (clearAllCache) {
+                    cookieManager.removeAllCookies(new ValueCallback<Boolean>() {
+                        @Override
+                        public void onReceiveValue(Boolean value) {
+                            cookieManager.flush();
+                            completion.run();
+                        }
+                    });
+                } else if (clearSessionCache) {
+                    cookieManager.removeSessionCookies(new ValueCallback<Boolean>() {
+                        @Override
+                        public void onReceiveValue(Boolean value) {
+                            cookieManager.flush();
+                            completion.run();
+                        }
+                    });
+                } else {
+                    completion.run();
+                }
             }
 
             private View createCloseButton(int id) {
@@ -954,11 +986,74 @@ public class InAppBrowser extends CordovaPlugin {
                 inAppWebView.setId(Integer.valueOf(6));
                 // File Chooser Implemented ChromeClient
                 inAppWebView.setWebChromeClient(new InAppChromeClient(thatWebView) {
+                    @Override
+                    public boolean onCreateWindow(WebView view, boolean isDialog, boolean isUserGesture, Message resultMsg) {
+                        // New-window navigations (for example window.open or target=_blank)
+                        // are delivered here by WebView. We do not show a second visible
+                        // browser window; instead, we route that navigation back into the
+                        // current InAppBrowser WebView so existing lifecycle and beforeload
+                        // handling remain consistent.
+                        final WebView inAppWebView = view;
+                        final WebViewClient webViewClient = new WebViewClient() {
+                            /**
+                             * New (added in API 24)
+                             * For Android 7 and above.
+                             */
+                            @Override
+                            public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
+                                return handleNewWindowUrl(request.getUrl().toString(), request.getMethod());
+                            }
+
+                            /**
+                             * Legacy (deprecated in API 24)
+                             * For Android 6 and below.
+                             */
+                            @Override
+                            public boolean shouldOverrideUrlLoading(WebView view, String url) {
+                                return handleNewWindowUrl(url, null);
+                            }
+
+                            private boolean handleNewWindowUrl(String targetUrl, String method) {
+                                // WebView commonly initializes popup flows with about:blank.
+                                // Forwarding this placeholder URL into the main WebView can
+                                // replace the current page and break subsequent navigation,
+                                // so it must be ignored.
+                                if ("about:blank".equals(targetUrl)) {
+                                    return false;
+                                }
+
+                                // Reuse the main client so beforeload and scheme routing are
+                                // applied exactly like regular navigations.
+                                if (currentClient != null && currentClient.shouldOverrideUrlLoading(targetUrl, method)) {
+                                    return true;
+                                }
+
+                                // If the main client did not consume the request, continue by
+                                // loading the URL in the currently visible InAppBrowser view.
+                                inAppWebView.loadUrl(targetUrl);
+                                return true;
+                            }
+                        };
+
+                        // Attach a temporary transport WebView required by the Android
+                        // onCreateWindow contract. Its client forwards navigation decisions
+                        // to the active InAppBrowser WebView/client above.
+                        final WebView newWebView = new WebView(view.getContext());
+                        newWebView.setWebViewClient(webViewClient);
+
+                        final WebView.WebViewTransport transport = (WebView.WebViewTransport) resultMsg.obj;
+                        transport.setWebView(newWebView);
+                        resultMsg.sendToTarget();
+
+                        return true;
+                    }
+
                     public void onProgressChanged(WebView view, int progress)
                     {
                         progressBarLoadingPage.setProgress(progress);
                         progressBarLoadingPage.setVisibility(progress == 100 ? ProgressBar.GONE : ProgressBar.VISIBLE);
                     }
+
                     public boolean onShowFileChooser (WebView webView, ValueCallback<Uri[]> filePathCallback, WebChromeClient.FileChooserParams fileChooserParams)
                     {
                         LOG.d(LOG_TAG, "File Chooser 5.0+");
@@ -983,7 +1078,13 @@ public class InAppBrowser extends CordovaPlugin {
                 WebSettings settings = inAppWebView.getSettings();
                 settings.setJavaScriptEnabled(true);
                 settings.setJavaScriptCanOpenWindowsAutomatically(true);
+                // setBuiltInZoomControls enables pinch-to-zoom and also the on-screen zoom controls
+                // The zoom controls have to be disabled separately by setDisplayZoomControls
+                // This is the recommended way by Google
                 settings.setBuiltInZoomControls(enableZoom);
+                // Enable/Disable on-screen zoom controls.
+                // These are deprecated since Android API Level 26 (Android 8).
+                // Google recommends to disable them
                 settings.setDisplayZoomControls(showZoomControls);
                 settings.setPluginState(android.webkit.WebSettings.PluginState.ON);
 
@@ -1078,16 +1179,16 @@ public class InAppBrowser extends CordovaPlugin {
                 }
                 settings.setDomStorageEnabled(true);
 
-                if (clearAllCache) {
-                    CookieManager.getInstance().removeAllCookie();
-                } else if (clearSessionCache) {
-                    CookieManager.getInstance().removeSessionCookie();
-                }
-
                 // Enable Thirdparty Cookies
                 CookieManager.getInstance().setAcceptThirdPartyCookies(inAppWebView,true);
 
-                inAppWebView.loadUrl(url);
+                // Delay navigation until cookie clearing is complete (or skipped).
+                clearCookies(new Runnable() {
+                    @Override
+                    public void run() {
+                        inAppWebView.loadUrl(url);
+                    }
+                });
                 inAppWebView.setId(Integer.valueOf(6));
                 inAppWebView.getSettings().setLoadWithOverviewMode(true);
                 inAppWebView.getSettings().setUseWideViewPort(useWideViewPort);
@@ -1113,12 +1214,14 @@ public class InAppBrowser extends CordovaPlugin {
 
                 // Add our webview to our main view/layout
                 RelativeLayout webViewLayout = new RelativeLayout(cordova.getActivity());
+                webViewLayout.setLayoutParams(new LinearLayout.LayoutParams(LayoutParams.MATCH_PARENT, 0, 1.0f));
                 webViewLayout.addView(inAppWebView);
                 main.addView(webViewLayout);
 
                 // Don't add the footer unless it's been enabled
                 if (showFooter) {
-                    webViewLayout.addView(footer);
+                    footer.setLayoutParams(new LinearLayout.LayoutParams(LayoutParams.MATCH_PARENT, this.dpToPixels(TOOLBAR_HEIGHT)));
+                    main.addView(footer);
                 }
 
                 WindowManager.LayoutParams lp = new WindowManager.LayoutParams();
@@ -1439,6 +1542,11 @@ public class InAppBrowser extends CordovaPlugin {
         public void onPageFinished(WebView view, String url) {
             super.onPageFinished(view, url);
 
+            // Re-arm beforeload after allowing the previously approved navigation.
+            if (beforeload != null && !beforeload.isEmpty()) {
+                this.waitForBeforeload = true;
+            }
+
             // Set the namespace for postMessage()
             injectDeferredObject("window.webkit={messageHandlers:{cordova_iab:cordova_iab}}", null);
 
@@ -1468,6 +1576,11 @@ public class InAppBrowser extends CordovaPlugin {
 
         public void onReceivedError(WebView view, int errorCode, String description, String failingUrl) {
             super.onReceivedError(view, errorCode, description, failingUrl);
+
+            // Ensure future navigations can still trigger beforeload after an error.
+            if (beforeload != null && !beforeload.isEmpty()) {
+                this.waitForBeforeload = true;
+            }
 
             try {
                 JSONObject obj = new JSONObject();

@@ -38,6 +38,20 @@
 
 #define    IAB_BRIDGE_NAME @"cordova_iab"
 
+static UIBarButtonSystemItem CDVWKInAppBrowserCloseButtonSystemItem(void)
+{
+    // Since iOS 13 it's possible to use UIBarButtonSystemItemClose
+    // instead of UIBarButtonSystemItemDone which corresponds perfectly
+    // to a close button. Since UIBarButtonSystemItemClose looks akward
+    // on iOS 18 and older, because an X inside a round button is shown,
+    // instead of a text, the close button is only applied since iOS 26.
+    if (@available(iOS 26.0, *)) {
+        return UIBarButtonSystemItemClose;
+    }
+
+    return UIBarButtonSystemItemDone;
+}
+
 #pragma mark CDVWKInAppBrowser
 
 @implementation CDVWKInAppBrowser
@@ -76,26 +90,32 @@
 - (void)open:(CDVInvokedUrlCommand *)command
 {
     CDVPluginResult *pluginResult;
-
     NSString *url = [command argumentAtIndex:0];
     NSString *target = [command argumentAtIndex:1 withDefault:kInAppBrowserTargetSelf];
     NSString *options = [command argumentAtIndex:2 withDefault:@"" andClass:[NSString class]];
 
-    self.callbackId = command.callbackId;
-
     if (url != nil) {
-        NSURL *baseUrl = [self.webViewEngine URL];
-        NSURL *absoluteUrl = [[NSURL URLWithString:url relativeToURL:baseUrl] absoluteURL];
+        NSURL *absoluteUrl = [[NSURL URLWithString:url
+                                     relativeToURL:[self.webViewEngine URL]] absoluteURL];
 
         if ([self isSystemUrl:absoluteUrl]) {
             target = kInAppBrowserTargetSystem;
         }
 
+        // target=_self - Open in Cordova WebView
         if ([target isEqualToString:kInAppBrowserTargetSelf]) {
             [self openInCordovaWebView:absoluteUrl withOptions:options];
+            
+            // target=_system - Open external
         } else if ([target isEqualToString:kInAppBrowserTargetSystem]) {
             [self openInSystem:absoluteUrl];
-        } else { // _blank or anything else
+            
+            // target=_blank or anything else, open in in-app browser
+        } else {
+            // Only set the command callback id here
+            // Don't set or overwrite it when target _system or _self is called, cause this will
+            // not invoke an in-app browser instance
+            self.callbackId = command.callbackId;
             [self openInInAppBrowser:absoluteUrl withOptions:options];
         }
 
@@ -111,47 +131,6 @@
 - (void)openInInAppBrowser:(NSURL *)url withOptions:(NSString *)options
 {
     CDVInAppBrowserOptions *browserOptions = [CDVInAppBrowserOptions parseOptions:options];
-    WKWebsiteDataStore *dataStore = [WKWebsiteDataStore defaultDataStore];
-
-    if (browserOptions.cleardata) {
-        NSDate *dateFrom = [NSDate dateWithTimeIntervalSince1970:0];
-        [dataStore removeDataOfTypes:[WKWebsiteDataStore allWebsiteDataTypes] modifiedSince:dateFrom completionHandler:^{
-            NSLog(@"Removed all WKWebView data");
-            if (@available(iOS 15.0, *)) {
-                // Since iOS 15 WKProcessPool is deprecated and has no effect
-            } else {
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Wdeprecated-declarations"
-                // Set for iOS 14 and below a new process pool
-                self.inAppBrowserViewController.webView.configuration.processPool = [[WKProcessPool alloc] init]; // create new process pool to flush all data
-#pragma clang diagnostic pop
-            }
-        }];
-    }
-
-    if (browserOptions.clearcache) {
-        // Deletes all cookies
-        WKHTTPCookieStore *cookieStore = dataStore.httpCookieStore;
-        [cookieStore getAllCookies:^(NSArray *cookies) {
-            NSHTTPCookie *cookie;
-            for (cookie in cookies) {
-                [cookieStore deleteCookie:cookie completionHandler:nil];
-            }
-        }];
-    }
-
-    if (browserOptions.clearsessioncache) {
-        // Deletes session cookies
-        WKHTTPCookieStore *cookieStore = dataStore.httpCookieStore;
-        [cookieStore getAllCookies:^(NSArray *cookies) {
-            NSHTTPCookie *cookie;
-            for (cookie in cookies) {
-                if (cookie.sessionOnly) {
-                    [cookieStore deleteCookie:cookie completionHandler:nil];
-                }
-            }
-        }];
-    }
 
     if (self.inAppBrowserViewController == nil) {
         self.inAppBrowserViewController = [[CDVWKInAppBrowserViewController alloc] initWithBrowserOptions: browserOptions andSettings:self.commandDelegate.settings];
@@ -207,10 +186,120 @@
     }
     _waitForBeforeload = ![_beforeload isEqualToString:@""];
 
-    [self.inAppBrowserViewController navigateTo:url];
-    if (!browserOptions.hidden) {
-        [self show:nil withNoAnimate:browserOptions.hidden];
+    __weak CDVWKInAppBrowser *weakSelf = self;
+    // Delay the initial navigation until requested clearing operations complete.
+    [self clearWebsiteDataByOptions:browserOptions completionHandler:^{
+        __strong __typeof(weakSelf) strongSelf = weakSelf;
+        if (strongSelf == nil || strongSelf.inAppBrowserViewController == nil) {
+            return;
+        }
+
+        [strongSelf.inAppBrowserViewController navigateTo:url];
+        if (!browserOptions.hidden) {
+            [strongSelf show:nil withNoAnimate:browserOptions.hidden];
+        }
+    }];
+}
+
+/**
+ * Clears website data (cookies, cache, etc.) according to the specified options.
+ * This will clear the data on the Cordova WebView also.
+ *
+ * @param browserOptions The options specifying which types of data to clear.
+ * @param completionHandler Called after all requested clearing operations are complete.
+ */
+- (void)clearWebsiteDataByOptions:(CDVInAppBrowserOptions *)browserOptions completionHandler:(void (^)(void))completionHandler
+{
+    // NOTE: [WKWebsiteDataStore defaultDataStore] will get the default data store of the app,
+    // which is shared between all WKWebViews, which means also the Cordova WebView
+    WKWebsiteDataStore *dataStore = [WKWebsiteDataStore defaultDataStore];
+
+    // Option precedence:
+    // 1) cleardata: clears all web data (including cookies), so cookie options are skipped.
+    // 2) clearcache: clears all cookies (session + persistent).
+    // 3) clearsessioncache: clears only session cookies.
+    // 4) no clear options: continue immediately.
+    if (browserOptions.cleardata) {
+        [self clearData:dataStore completionHandler:completionHandler];
+        return;
     }
+
+    if (browserOptions.clearcache) {
+        [self clearCookie:dataStore sessionOnly:NO completionHandler:completionHandler];
+        return;
+    }
+
+    if (browserOptions.clearsessioncache) {
+        [self clearCookie:dataStore sessionOnly:YES completionHandler:completionHandler];
+        return;
+    }
+
+    if (completionHandler != nil) {
+        completionHandler();
+    }
+}
+
+/**
+ * Clears all WKWebView website data types (cookies, local storage, IndexedDB, cache, etc.).
+ */
+- (void)clearData:(WKWebsiteDataStore *)dataStore completionHandler:(void (^)(void))completionHandler
+{
+    [dataStore fetchDataRecordsOfTypes:WKWebsiteDataStore.allWebsiteDataTypes completionHandler:^(NSArray<WKWebsiteDataRecord *> * _Nonnull records) {
+        [dataStore removeDataOfTypes:WKWebsiteDataStore.allWebsiteDataTypes forDataRecords:records completionHandler:^{
+            NSLog(@"Removed all WKWebView data");
+            // Create new WKProcessPool
+            if (@available(iOS 15.0, *)) {
+                // Since iOS 15 WKProcessPool is deprecated and has no effect
+            } else {
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated-declarations"
+                // Set for iOS 14 and below a new process pool
+                self.inAppBrowserViewController.webView.configuration.processPool = [[WKProcessPool alloc] init]; // create new process pool to flush all data
+#pragma clang diagnostic pop
+            }
+
+            if (completionHandler != nil) {
+                completionHandler();
+            }
+        }];
+    }];
+}
+
+/**
+ * Clears cookies from the shared cookie store.
+ * sessionOnly=NO: clear all cookies.
+ * sessionOnly=YES: clear only session cookies.
+ */
+- (void)clearCookie:(WKWebsiteDataStore *)dataStore sessionOnly:(BOOL)sessionOnly completionHandler:(void (^)(void))completionHandler
+{
+    WKHTTPCookieStore *cookieStore = dataStore.httpCookieStore;
+    [cookieStore getAllCookies:^(NSArray<NSHTTPCookie *> *cookies) {
+        NSMutableArray<NSHTTPCookie *> *cookiesToDelete = [NSMutableArray array];
+        for (NSHTTPCookie *cookie in cookies) {
+            if (!sessionOnly || cookie.sessionOnly) {
+                [cookiesToDelete addObject:cookie];
+            }
+        }
+
+        // No cookies available, return
+        if (cookiesToDelete.count == 0) {
+            if (completionHandler != nil) {
+                completionHandler();
+            }
+            return;
+        }
+
+        // [WKHTTPCookieStore deleteCookie] is async, so complete only after the final callback.
+        __block NSUInteger pendingCookieDeletes = cookiesToDelete.count;
+        for (NSHTTPCookie *cookie in cookiesToDelete) {
+            [cookieStore deleteCookie:cookie completionHandler:^{
+                pendingCookieDeletes--;
+                if (pendingCookieDeletes == 0 && completionHandler != nil) {
+                    completionHandler();
+                }
+            }];
+        }
+    }];
 }
 
 - (void)show:(CDVInvokedUrlCommand *)command
@@ -241,7 +330,6 @@
     // Run later to avoid the "took a long time" log message.
     dispatch_async(dispatch_get_main_queue(), ^{
         if (weakSelf.inAppBrowserViewController != nil) {
-            float osVersion = [[[UIDevice currentDevice] systemVersion] floatValue];
             __strong __typeof(weakSelf) strongSelf = weakSelf;
             if (!strongSelf->tmpWindow) {
                 if (@available(iOS 13.0, *)) {
@@ -269,9 +357,6 @@
                 // window would never be displayed, which results in a white/blank screen.
                 if (!strongSelf->tmpWindow) {
                     CGRect frame = [[UIScreen mainScreen] bounds];
-                    if (initHidden && osVersion < 11) {
-                        frame.origin.x = -10000;
-                    }
                     strongSelf->tmpWindow = [[UIWindow alloc] initWithFrame:frame];
                 }
             }
@@ -279,7 +364,7 @@
             [strongSelf->tmpWindow setRootViewController:tmpController];
             [strongSelf->tmpWindow setWindowLevel:UIWindowLevelNormal];
 
-            if (!initHidden || osVersion < 11) {
+            if (!initHidden) {
                 [self->tmpWindow makeKeyAndVisible];
             }
             [tmpController presentViewController:nav animated:!noAnimate completion:nil];
@@ -343,6 +428,11 @@
     NSURL *url = [NSURL URLWithString:urlStr];
     _waitForBeforeload = NO;
     [self.inAppBrowserViewController navigateTo:url];
+}
+
+- (BOOL)isBeforeloadEnabled
+{
+    return ![_beforeload isEqualToString:@""];
 }
 
 // This is a helper method for the inject{Script|Style}{Code|File} API calls, which
@@ -457,8 +547,9 @@
 - (void)webView:(WKWebView *)theWebView decidePolicyForNavigationAction:(WKNavigationAction *)navigationAction decisionHandler:(void (^)(WKNavigationActionPolicy))decisionHandler
 {
     NSURL *url = navigationAction.request.URL;
-    NSURL *mainDocumentURL = navigationAction.request.mainDocumentURL;
-    BOOL isTopLevelNavigation = [url isEqual:mainDocumentURL];
+    BOOL isTopLevelNavigation =
+        (navigationAction.targetFrame == nil) ||
+        navigationAction.targetFrame.isMainFrame;
     BOOL shouldStart = YES;
     BOOL useBeforeLoad = NO;
     NSString *httpMethod = navigationAction.request.HTTPMethod;
@@ -467,12 +558,11 @@
     if ([_beforeload isEqualToString:@"post"]) {
         // TODO: Handle POST requests by preserving POST data then remove this condition.
         errorMessage = @"beforeload doesn't yet support POST requests";
-    } else if (isTopLevelNavigation && (
-        [_beforeload isEqualToString:@"yes"]
-        || ([_beforeload isEqualToString:@"get"] && [httpMethod isEqualToString:@"GET"])
-        // TODO: Comment in when POST requests are handled.
-        // || ([_beforeload isEqualToString:@"post"] && [httpMethod isEqualToString:@"POST"])
-    )) {
+
+        // beforeload only on GET and when the appropriate option is set
+    } else if (isTopLevelNavigation
+               && [httpMethod isEqualToString:@"GET"]
+               && ([_beforeload isEqualToString:@"yes"] || [_beforeload isEqualToString:@"get"])) {
         useBeforeLoad = YES;
     }
 
@@ -545,6 +635,18 @@
     if ([message.body isKindOfClass:[NSDictionary class]]) {
         NSDictionary *messageContent = (NSDictionary *) message.body;
         NSString *scriptCallbackId = messageContent[@"id"];
+
+        // Only allow callback ids generated by this plugin, e.g. "InAppBrowser123".
+        if (![scriptCallbackId isKindOfClass:[NSString class]]) {
+            NSLog(@"InAppBrowser callback called with missing or non-string callback id");
+            return;
+        }
+
+        NSRegularExpression *callbackIdRegex = [NSRegularExpression regularExpressionWithPattern:@"^InAppBrowser[0-9]{1,10}$" options:0 error:nil];
+        if ([callbackIdRegex firstMatchInString:scriptCallbackId options:0 range:NSMakeRange(0, scriptCallbackId.length)] == nil) {
+            NSLog(@"InAppBrowser callback called with invalid callbackId: %@", scriptCallbackId);
+            return;
+        }
 
         if ([messageContent objectForKey:@"d"]) {
             NSString *scriptResult = messageContent[@"d"];
@@ -768,7 +870,10 @@ BOOL isExiting = NO;
     self.toolbarBackground.backgroundColor = toolbarBackgroundColor;
     [self.view addSubview:self.toolbarBackground];
     
-    self.toolbar = [UIToolbar new];
+    // NOTE: Initializing UIToolbar with initWithFrame: instead of `new` prevents
+    // constraint warnings on iOS 18 and older, which has no impact, since auto
+    // layout is used.
+    self.toolbar = [[UIToolbar alloc] initWithFrame:CGRectMake(0.0, 0.0, 100.0, 100.0)];
     // Remove the toolbar background on iOS 18 and older
     if (@available(iOS 26.0, *)) {
         // Don't do anything on iOS 26 and newer, there is no background by default
@@ -829,7 +934,11 @@ BOOL isExiting = NO;
     // We add our own constraints, they should not be determined from the frame.
     self.spinner.translatesAutoresizingMaskIntoConstraints = NO;
 
-    self.closeButton = [[UIBarButtonItem alloc] initWithBarButtonSystemItem:UIBarButtonSystemItemDone target:self action:@selector(close)];
+    // NOTE: On iOS 26 using `UIBarButtonItem initWithBarButtonSystemItem:` gives constraint warnings,
+    // which is a known UIKit bug.
+    self.closeButton = [[UIBarButtonItem alloc] initWithBarButtonSystemItem:CDVWKInAppBrowserCloseButtonSystemItem()
+                                                                     target:self
+                                                                     action:@selector(close)];
     self.closeButton.enabled = YES;
 
     UIBarButtonItem *addressBarButton;
@@ -931,6 +1040,11 @@ BOOL isExiting = NO;
     [self.spinner.centerYAnchor constraintEqualToAnchor:self.webView.centerYAnchor].active = YES;
 
     // Define vertical constraints, in order from top to bottom
+    // Don't extend behind the status bar like also the Safari app does and restraint
+    // everything to safe area top.
+    // Safari renders a native blur/color UIView as the status bar backdrop,
+    // and the web view starts below it. Content never has a chance to appear behind the status bar.
+    // The in-app browser should do the same.
     // The Address label and Toolbar are optional
     // Constraints for different cases set by options when Toolbar and/or Address label is visible or not
     //
@@ -947,8 +1061,8 @@ BOOL isExiting = NO;
         // Toolbar is at top
         if (toolbarIsAtTop) {
             [NSLayoutConstraint activateConstraints:@[
-                // Toolbar background top to top edge
-                [self.toolbarBackground.topAnchor constraintEqualToAnchor:self.view.topAnchor],
+                // Toolbar background top to safe area top, to respect statusbar area
+                [self.toolbarBackground.topAnchor constraintEqualToAnchor:self.view.safeAreaLayoutGuide.topAnchor],
                 // Webview top to Toolbar background bottom
                 [self.webView.topAnchor constraintEqualToAnchor:self.toolbarBackground.bottomAnchor],
                 // WebView bottom to bottom edge
@@ -1008,11 +1122,11 @@ BOOL isExiting = NO;
 
 - (void)setCloseButtonTitle:(NSString *)title withColor:(NSString *)colorString atIndex:(int)buttonIndex
 {
-    // The advantage of using UIBarButtonSystemItemDone is the system will localize it for you automatically
-    // but, if you want to set this yourself, knock yourself out. (We can't set the title for a system Done button, so we have to create a new one.)
+    // The system Close/Done button title is localized automatically.
+    // If a custom caption is provided, create a title-based button instead.
     self.closeButton = nil;
-    // Initialize with title if title is set, otherwise the title will be 'Done' localized.
-    self.closeButton = title != nil ? [[UIBarButtonItem alloc] initWithTitle:title style:UIBarButtonItemStylePlain target:self action:@selector(close)] : [[UIBarButtonItem alloc] initWithBarButtonSystemItem:UIBarButtonSystemItemDone target:self action:@selector(close)];
+    // Initialize with title if set, otherwise use the system-localized Close/Done item.
+    self.closeButton = title != nil ? [[UIBarButtonItem alloc] initWithTitle:title style:UIBarButtonItemStylePlain target:self action:@selector(close)] : [[UIBarButtonItem alloc] initWithBarButtonSystemItem:CDVWKInAppBrowserCloseButtonSystemItem() target:self action:@selector(close)];
     self.closeButton.enabled = YES;
     // If color on closebutton is requested then initialize with that that color, otherwise use initialize with default.
     self.closeButton.tintColor = colorString != nil ? [self colorFromHexString:colorString] : [UIColor colorWithRed:60.0 / 255.0 green:136.0 / 255.0 blue:230.0 / 255.0 alpha:1];
@@ -1141,9 +1255,9 @@ decidePolicyForNavigationAction:(WKNavigationAction *)navigationAction
 decisionHandler:(void (^)(WKNavigationActionPolicy))decisionHandler
 {
     NSURL *url = navigationAction.request.URL;
-    NSURL *mainDocumentURL = navigationAction.request.mainDocumentURL;
-
-    BOOL isTopLevelNavigation = [url isEqual:mainDocumentURL];
+    BOOL isTopLevelNavigation =
+        (navigationAction.targetFrame == nil) ||
+        navigationAction.targetFrame.isMainFrame;
 
     if (isTopLevelNavigation) {
         self.currentURL = url;
@@ -1166,11 +1280,28 @@ decisionHandler:(void (^)(WKNavigationActionPolicy))decisionHandler
 
 - (void)webView:(WKWebView *)theWebView failedNavigation:(NSString *) delegateName withError:(nonnull NSError *)error
 {
-    // Log fail message, stop spinner, update back/forward
-    NSLog(@"webView:%@ - %ld: %@", delegateName, (long)error.code, [error localizedDescription]);
     self.backButton.enabled = theWebView.canGoBack;
     self.forwardButton.enabled = theWebView.canGoForward;
     [self.spinner stopAnimating];
+
+    BOOL isBeforeloadEnabled = self.navigationDelegate != nil && [self.navigationDelegate isBeforeloadEnabled];
+    
+    // When using beforeload, navigations are intentionally cancelled and restarted.
+    // This results in expected cancellation errors with code NSURLErrorCancelled or
+    // WebKitErrorDomain code 102. Suppress these expected cancellation errors so
+    // they do not trigger false loaderror events.
+    BOOL isExpectedCancellation =
+        isBeforeloadEnabled && (
+            (error.code == NSURLErrorCancelled) ||
+            ([error.domain isEqualToString:@"WebKitErrorDomain"] && error.code == 102)
+        );
+
+    if (isExpectedCancellation) {
+        return;
+    }
+
+    // Populate error
+    NSLog(@"webView:%@ - %ld: %@", delegateName, (long)error.code, [error localizedDescription]);
     self.addressLabel.text = NSLocalizedString(@"Load Error", nil);
     [self.navigationDelegate webView:theWebView didFailNavigation:error];
 }

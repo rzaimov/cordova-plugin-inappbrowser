@@ -29,5 +29,9 @@ Thumbs.db
 
 node_modules
 
+# ASF release workspace
+.asf-release/
+!.asf-release/.gitkeep
+
 # IntelliJ IDEA files
 **/.idea/**/*

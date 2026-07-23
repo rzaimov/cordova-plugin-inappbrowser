@@ -1,4 +1,5 @@
 ---
+# cordova-docs build metadata
 title: Inappbrowser
 description: Open an in-app browser window.
 ---
@@ -25,7 +26,15 @@ description: Open an in-app browser window.
 
 # cordova-plugin-inappbrowser
 
-[![Android Testsuite](https://github.com/apache/cordova-plugin-inappbrowser/actions/workflows/android.yml/badge.svg)](https://github.com/apache/cordova-plugin-inappbrowser/actions/workflows/android.yml) [![Chrome Testsuite](https://github.com/apache/cordova-plugin-inappbrowser/actions/workflows/chrome.yml/badge.svg)](https://github.com/apache/cordova-plugin-inappbrowser/actions/workflows/chrome.yml) [![iOS Testsuite](https://github.com/apache/cordova-plugin-inappbrowser/actions/workflows/ios.yml/badge.svg)](https://github.com/apache/cordova-plugin-inappbrowser/actions/workflows/ios.yml) [![Lint Test](https://github.com/apache/cordova-plugin-inappbrowser/actions/workflows/lint.yml/badge.svg)](https://github.com/apache/cordova-plugin-inappbrowser/actions/workflows/lint.yml)
+[![npm - Latest](https://img.shields.io/npm/v/cordova-plugin-inappbrowser/latest?label=Latest%20Release%20(npm))](https://npmjs.com/package/cordova-plugin-inappbrowser)
+[![GitHub](https://img.shields.io/github/package-json/v/apache/cordova-plugin-inappbrowser?label=Development%20(Git))](https://github.com/apache/cordova-plugin-inappbrowser)
+
+[![GitHub - Node Workflow](https://github.com/apache/cordova-plugin-inappbrowser/actions/workflows/ci.yml/badge.svg?branch=master)](https://github.com/apache/cordova-plugin-inappbrowser/actions/workflows/ci.yml?query=branch%3Amaster)
+[![Android Testsuite](https://github.com/apache/cordova-plugin-inappbrowser/actions/workflows/android.yml/badge.svg)](https://github.com/apache/cordova-plugin-inappbrowser/actions/workflows/android.yml)
+[![Chrome Testsuite](https://github.com/apache/cordova-plugin-inappbrowser/actions/workflows/chrome.yml/badge.svg)](https://github.com/apache/cordova-plugin-inappbrowser/actions/workflows/chrome.yml)
+[![iOS Testsuite](https://github.com/apache/cordova-plugin-inappbrowser/actions/workflows/ios.yml/badge.svg)](https://github.com/apache/cordova-plugin-inappbrowser/actions/workflows/ios.yml)
+[![Lint Test](https://github.com/apache/cordova-plugin-inappbrowser/actions/workflows/lint.yml/badge.svg)](https://github.com/apache/cordova-plugin-inappbrowser/actions/workflows/lint.yml)
+[![GitHub - Release Audit Workflow](https://github.com/apache/cordova-plugin-inappbrowser/actions/workflows/release-audit.yml/badge.svg?branch=master)](https://github.com/apache/cordova-plugin-inappbrowser/actions/workflows/release-audit.yml?query=branch%3Amaster)
 
 You can show helpful articles, videos, and web resources inside of your app. Users can view web pages without leaving your app.
 
@@ -83,13 +92,13 @@ instance, or the system browser.
 
     var ref = cordova.InAppBrowser.open(url, target, options);
 
-- __ref__: Reference to the `InAppBrowser` window when the target is set to `'_blank'`. _(InAppBrowser)_
+- __ref__: Reference to the `InAppBrowser` window when the target is set to `'_blank'`. _(InAppBrowser)_ On Android, non-whitelisted URLs also fall back to the `InAppBrowser` when the target is set to `'_self'`.
 
 - __url__: The URL to load _(String)_. Call `encodeURI()` on this if the URL contains Unicode characters.
 
 - __target__: The target in which to load the URL, an optional parameter that defaults to `_self`. _(String)_
 
-    - `_self`: Opens in the Cordova WebView if the URL is in the white list, otherwise it opens in the `InAppBrowser`.
+    - `_self`: Opens in the Cordova WebView. On Android, non-whitelisted URLs fall back to the `InAppBrowser`. On iOS, the current implementation does not perform this fallback and navigation remains in the Cordova WebView (subject to `<allow-navigation>`).
     - `_blank`: Opens in the `InAppBrowser`.
     - `_system`: Opens in the system's web browser.
 
@@ -105,8 +114,8 @@ instance, or the system browser.
 
     - __hidden__: set to `yes` to create the browser and load the page, but not show it. The loadstop event fires when loading is complete. Omit or set to `no` (default) to have the browser open and load normally.
     - __beforeload__: set to enable the `beforeload` event to modify which pages are actually loaded in the browser. Accepted values are `get` to intercept only GET requests, `post` to intercept on POST requests or `yes` to intercept both GET & POST requests. Note that POST requests are not currently supported and will be ignored (if you set `beforeload=post` it will raise an error).
-    - __clearcache__: set to `yes` to have the browser's cookie cache cleared before the new window is opened
-    - __clearsessioncache__: set to `yes` to have the session cookie cache cleared before the new window is opened
+    - __clearcache__:  Set to `yes` to clear the shared browser's cookie cache of your app, which means also the one of the Cordova WebView, before the in-app browser is opened.
+    - __clearsessioncache__: Set to `yes` to clear the shared session cookies from the browser's cache of your app, which means also the one of the Cordova WebView, before the in-app browser is opened.
     - __closebuttoncaption__: set to a string to use as the close button's caption instead of a X. Note that you need to localize this value yourself.
     - __closebuttoncolor__: set to a valid hex color string, for example: `#00ff00`, and it will change the
     close button color from default, regardless of being a text or default X. Only has effect if user has location set to `yes`.
@@ -121,8 +130,8 @@ instance, or the system browser.
     - __toolbarcolor__: set to a valid hex color string, for example: `#00ff00`, and it will change the color the toolbar from default. Only has effect if user has location set to `yes`.
     - __locationtextcolor__: set to a valid hex color string, for example: `#00ff00`, and it will change the color of the location text (URL) from default. Only has effect if user has location set to `yes`.
     - __lefttoright__: Set to `yes` to swap positions of the navigation buttons and the close button. Specifically, navigation buttons go to the right and close button to the left. Default value is `no`.
-    - __zoom__: set to `yes` to enable Android browser's zoom controls, set to `no` to disable them. Default value is `yes`.
-    - __zoomcontrols__: set to `yes` to show Android browser's zoom controls, set to `no` to hide them. Default value is `no`.
+    - __zoom__: Enables pinch-to-zoom gesture. Set to `no` to disable it. Default value is `yes`.
+    - __zoomcontrols__: set to `yes` to show Android browser's zoom controls, set to `no` to hide them. Default value is `no`. The zoom controls are deprecated since Android API Level 26 (Android 8). Google recommends to disable them.
     - __mediaPlaybackRequiresUserAction__: Set to `yes` to prevent HTML5 audio or video from autoplaying (defaults to `no`).
     - __shouldPauseOnSuspend__: Set to `yes` to make InAppBrowser WebView to pause/resume with the app to stop background audio (this may be required to avoid Google Play issues like described in [CB-11013](https://issues.apache.org/jira/browse/CB-11013)).
     - __useWideViewPort__: Sets whether the WebView should enable support for the "viewport" HTML meta tag or should use a wide viewport. When the value of the setting is `no`, the layout width is always set to the width of the WebView control in device-independent (CSS) pixels. When the value is `yes` and the page contains the viewport meta tag, the value of the width specified in the tag is used. If the page does not contain the tag or does not provide a width, then a wide viewport will be used. (defaults to `yes`).
@@ -132,9 +141,9 @@ instance, or the system browser.
 
     - __hidden__: set to `yes` to create the browser and load the page, but not show it. The loadstop event fires when loading is complete. Omit or set to `no` (default) to have the browser open and load normally.
     - __beforeload__: set to enable the `beforeload` event to modify which pages are actually loaded in the browser. Accepted values are `get` to intercept only GET requests, `post` to intercept on POST requests or `yes` to intercept both GET & POST requests. Note that POST requests are not currently supported and will be ignored (if you set `beforeload=post` it will raise an error).
-    - __clearcache__: set to `yes` to have the browser's cookie cache cleared before the new window is opened
-    - __clearsessioncache__: set to `yes` to have the session cookie cache cleared before the new window is opened. For WKWebView, requires iOS 11+ on target device.
-    - __cleardata__: set to `yes` to have the browser's entire local storage cleared (cookies, HTML5 local storage, IndexedDB, etc.) before the new window is opened
+    - __clearcache__: Set to `yes` to clear the browser's cookie cache of your app, which means also the one of the Cordova WebView, before the in-app browser is opened.
+    - __clearsessioncache__: Set to `yes` to clear the shared session cookies from the browser's  cache of your app, which means also the one of the Cordova WebView, before the in-app browser is opened.
+    - __cleardata__: Set to `yes` to clear the shared browser's entire local storage of your app, which means also the one of the Cordova WebView, like cookies, HTML5 local storage, IndexedDB, etc., before the in-app browser is opened.
     - __closebuttoncolor__: set as a valid hex color string, for example: `#00ff00`, to change from the default __Done__ button's color. Only applicable if toolbar is not disabled.
     - __closebuttoncaption__: set to a string to use as the __Done__ button's caption. Note that you need to localize this value yourself.
     - __disallowoverscroll__: Set to `yes` or `no` (default is `no`). Turns on/off the the bounce of the WKWebView's UIScrollView.
@@ -174,6 +183,8 @@ Since the introduction of iPadOS 13, iPads try to adapt their content mode / use
 ```
 
 The example above forces the user agent to contain `iPad`. The other option is to use the value `desktop` to turn the user agent to `Macintosh`.
+
+The current iOS implementation of `target='_self'` does not fall back to `InAppBrowser` for non-whitelisted URLs. If you need guaranteed `InAppBrowser` behavior on iOS, use `target='_blank'`.
 
 ### Browser Quirks
 
@@ -216,102 +227,72 @@ The object returned from a call to `cordova.InAppBrowser.open` when the target i
 
 - __callback__: the function that executes when the event fires. The function is passed an `InAppBrowserEvent` object as a parameter.
 
-## Example
+### Example
 
 ```javascript
 
-var inAppBrowserRef;
-
 function showHelp(url) {
 
-    var target = "_blank";
+    let inAppBrowserRef = cordova.InAppBrowser.open(url, "_blank", "location=yes,hidden=yes,beforeload=yes");
 
-    var options = "location=yes,hidden=yes,beforeload=yes";
+    inAppBrowserRef.addEventListener('loadstart', (inAppBrowserEvent) => {
+        document.getElementById("status-message").textContent = "loading please wait ...";
+    });
 
-    inAppBrowserRef = cordova.InAppBrowser.open(url, target, options);
-
-    inAppBrowserRef.addEventListener('loadstart', loadStartCallBack);
-
-    inAppBrowserRef.addEventListener('loadstop', loadStopCallBack);
-
-    inAppBrowserRef.addEventListener('loaderror', loadErrorCallBack);
-
-    inAppBrowserRef.addEventListener('beforeload', beforeloadCallBack);
-
-    inAppBrowserRef.addEventListener('message', messageCallBack);
-}
-
-function loadStartCallBack() {
-
-    $('#status-message').text("loading please wait ...");
-
-}
-
-function loadStopCallBack() {
-
-    if (inAppBrowserRef != undefined) {
+    inAppBrowserRef.addEventListener('loadstop', (inAppBrowserEvent) => {
+        if (inAppBrowserRef == undefined) return;
 
         inAppBrowserRef.insertCSS({ code: "body{font-size: 25px;}" });
-
-        inAppBrowserRef.executeScript({ code: "\
-            var message = 'this is the message';\
-            var messageObj = {my_message: message};\
-            var stringifiedMessageObj = JSON.stringify(messageObj);\
-            webkit.messageHandlers.cordova_iab.postMessage(stringifiedMessageObj);"
+        inAppBrowserRef.executeScript({
+            code:
+            `
+                const message = 'this is the message';
+                const messageObj = {my_message: message};
+                const stringifiedMessageObj = JSON.stringify(messageObj);
+                webkit.messageHandlers.cordova_iab.postMessage(stringifiedMessageObj);
+            `
         });
 
-        $('#status-message').text("");
-
+        document.getElementById("status-message").textContent = "";
         inAppBrowserRef.show();
-    }
+    });
 
+    inAppBrowserRef.addEventListener('loaderror', (inAppBrowserEvent) => {
+        document.getElementById("status-message").textContent = "";
+
+        const scriptErrorMesssage = alert(
+            `Sorry we cannot open that page. Message from the server is : ${inAppBrowserEvent.message}`
+        );
+
+        inAppBrowserRef.executeScript(
+            { code: scriptErrorMesssage }, 
+            // callback
+            (params) => {
+                if (params[0] == null) {
+                    document.getElementById("status-message").textContent =
+                        `Sorry we couldn't open that page. Message from the server is : '${params.message}'`;
+                }
+            }
+        );
+
+        inAppBrowserRef.close();
+        inAppBrowserRef = undefined;
+    });
+
+    inAppBrowserRef.addEventListener('beforeload', (inAppBrowserEvent, callback) => {
+        if (inAppBrowserEvent.url.startsWith("http://www.example.com/")) {
+            // Load this URL in the inAppBrowser.
+            callback(inAppBrowserEvent.url);
+        } else {
+            // The callback is not invoked, so the page will not be loaded.
+            document.getElementById("status-message").textContent = "This browser only opens pages on http://www.example.com/";
+        }
+    });
+
+    inAppBrowserRef.addEventListener('message', (inAppBrowserEvent) => {
+       document.getElementById("status-message").textContent = `message received: ${inAppBrowserEvent.data.my_message}`;
+    });
 }
-
-function loadErrorCallBack(params) {
-
-    $('#status-message').text("");
-
-    var scriptErrorMesssage =
-       "alert('Sorry we cannot open that page. Message from the server is : "
-       + params.message + "');"
-
-    inAppBrowserRef.executeScript({ code: scriptErrorMesssage }, executeScriptCallBack);
-
-    inAppBrowserRef.close();
-
-    inAppBrowserRef = undefined;
-
-}
-
-function executeScriptCallBack(params) {
-
-    if (params[0] == null) {
-
-        $('#status-message').text(
-           "Sorry we couldn't open that page. Message from the server is : '"
-           + params.message + "'");
-    }
-
-}
-
-function beforeloadCallBack(params, callback) {
-
-    if (params.url.startsWith("http://www.example.com/")) {
-
-        // Load this URL in the inAppBrowser.
-        callback(params.url);
-    } else {
-
-        // The callback is not invoked, so the page will not be loaded.
-        $('#status-message').text("This browser only opens pages on http://www.example.com/");
-    }
-
-}
-
-function messageCallBack(params){
-    $('#status-message').text("message received: "+params.data.my_message);
-}
-
 ```
 
 ### Customscheme event Example
@@ -738,11 +719,13 @@ iab.open('https://whitelisted-url.com', 'random_string', 'location=no'); // load
 
 ### Urls that are not white-listed
 
+Platform note: `_self` differs by platform for non-whitelisted URLs. On Android it falls back to `InAppBrowser`. On iOS it stays in the Cordova WebView and is controlled by `<allow-navigation>`.
+
 ```
 var iab = cordova.InAppBrowser;
 
 iab.open('https://url-that-fails-whitelist.com');                  // loads in the InAppBrowser
-iab.open('https://url-that-fails-whitelist.com', '_self');         // loads in the InAppBrowser
+iab.open('https://url-that-fails-whitelist.com', '_self');         // Android: loads in the InAppBrowser, iOS: handled by Cordova WebView rules
 iab.open('https://url-that-fails-whitelist.com', '_system');       // loads in the system browser
 iab.open('https://url-that-fails-whitelist.com', '_blank');        // loads in the InAppBrowser
 iab.open('https://url-that-fails-whitelist.com', 'random_string'); // loads in the InAppBrowser
